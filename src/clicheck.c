@@ -94,6 +94,10 @@ void *client_thread(void *struct_vals)
   	fd_set readfd;
 	struct timeval tv;
 	int maxfd;
+	struct sockaddr_in server_addrt, client_addrt, temp_addrt;
+	int slent= sizeof( server_addrt );
+	int clent = sizeof( client_addrt );
+	int lent= sizeof( temp_addrt );
 
 	thread_struct *thread_data;
   	thread_data = (thread_struct *)struct_vals;
@@ -103,11 +107,33 @@ void *client_thread(void *struct_vals)
     printf( "\nOffset Size: %d", thread_data -> offset_size );
     printf( "\nChunk Size: %d", thread_data -> chunk_size );
 
-	client_socket = createAndConnect(id,1);
+	client_socket = socket( AF_INET, SOCK_DGRAM, 0 );
+    
+    if( client_socket == -1 )
+    	printf( "\nERROR:Could not create Socket\n" );
+    	
+    memset( ( char * ) &client_addrt, 0, sizeof( client_addrt ) ); 
+    client_addrt.sin_family      = AF_INET;
+    client_addrt.sin_addr.s_addr = htonl( INADDR_ANY );
+    client_addrt.sin_port        = htons(0);
+    
+	// binding the Addresses with the Client Socket Descriptor
+    bind( client_socket, (SA *) &client_addrt, sizeof( client_addrt ) );	
+
+    bzero( &server_addrt, sizeof( server_addrt ) );
+    server_addrt.sin_family = AF_INET;
+    server_addrt.sin_port = htons( atoi(Port_Number[id]) );
+
+    if( inet_pton( AF_INET, IP_address[id], &server_addrt.sin_addr ) <= 0 )
+    {
+    	printf( "\nINET_PTON error for IP: %s", IP_address[id] );
+    	exit(0);
+    }
+	maxfd = client_socket + 1;
 	
 	bzero( tok, BSIZE );
     strcpy( tok, "DATA" );
-	bytes = sendto( client_socket, tok, BSIZE, 0, ( struct sockaddr * )&server_addr, slen);
+	bytes = sendto( client_socket, tok, BSIZE, 0, ( struct sockaddr * )&server_addrt, slent );
     werr( bytes );
    
    
@@ -121,16 +147,15 @@ void *client_thread(void *struct_vals)
     select ( maxfd, &readfd, NULL, NULL, &tv );
 
     if( FD_ISSET( client_socket, &readfd ) ) 
-		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addr, &len);
+		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addrt, &lent);
 	
 	
 	//SENDING FILE NAME TO SERVER
-	
     
     bzero( send_buff, BSIZE );
     strcpy( send_buff, name );
 	
-	bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addr, slen);
+	bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addrt, slent);
     werr( bytes );
    
 	bzero( recev_buff, BSIZE );
@@ -143,16 +168,14 @@ void *client_thread(void *struct_vals)
     select ( maxfd, &readfd, NULL, NULL, &tv );
 
     if( FD_ISSET( client_socket, &readfd ) ) 
-		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addr, &len);
+		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addrt, &lent);
 	
-	
-
 	//SENDING OFFSET SIZE
 
     bzero( send_buff, BSIZE );
     sprintf( send_buff, "%d", thread_data -> offset_size );
     
-    bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addr, slen);
+    bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addrt, slent);
     werr( bytes );
    
    
@@ -166,16 +189,13 @@ void *client_thread(void *struct_vals)
     select ( maxfd, &readfd, NULL, NULL, &tv );
 
     if( FD_ISSET( client_socket, &readfd ) ) 
-		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addr, &len);
+		bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, ( struct sockaddr * ) &temp_addrt, &lent);
 	
-    
-    
     //SENDING CHUNK SIZE
-    
     
     bzero( send_buff, BSIZE );
     sprintf( send_buff, "%d", thread_data -> chunk_size );
-    bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addr, slen);
+    bytes = sendto( client_socket, send_buff, BSIZE, 0, ( struct sockaddr * )&server_addrt, slent);
     werr( bytes );
     
     bzero( recev_buff, BSIZE );
@@ -200,7 +220,7 @@ void *client_thread(void *struct_vals)
 	{
 		while (1)
 		{
-			bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, (struct sockaddr *)&temp_addr, &len);
+			bytes = recvfrom( client_socket, recev_buff, BSIZE, 0, (struct sockaddr *)&temp_addrt, &lent);
             if( strstr( recev_buff, "ENDOFFILE") != NULL)
 				break;
                
@@ -208,14 +228,8 @@ void *client_thread(void *struct_vals)
 		}
     }
     
-    
-    
     bzero( recev_buff, BSIZE );
     printf("\nFile Written by thread %d", id + 1 );
-
-    /*fseeko( output_file, -9, SEEK_END );
-    position = ftello( output_file );
-    ftruncate( fileno( output_file ), position );*/
 
     fclose( output_file );
 }
@@ -274,7 +288,7 @@ int main(int argc, char **argv)
     
     count = (number_of_servers >= max) ? max : number_of_servers;
 
-    client_socket1 = createAndConnect(0,0);
+    client_socket1 = createAndConnect( 0, 0 );
 
     // SEND CHECK TOKEN TO SERVER
     
@@ -322,7 +336,6 @@ int main(int argc, char **argv)
     else
     {
 		file_size = atoi( recev_buff );
-        file_size /= 10;
         printf("\nFile size: %d", file_size);
 	}
     
